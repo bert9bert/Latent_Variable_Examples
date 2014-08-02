@@ -28,7 +28,7 @@ assert mu_dist1.shape==(d,)
 assert sigma_dist0.shape==(d,d)
 assert sigma_dist1.shape==(d,d)
 
-# mixing probability (of getting the second distribution)
+# mixing probability (of getting distribution 1)
 tau = 0.2
 
 
@@ -56,8 +56,8 @@ loglik = np.empty(MAXITER+1)
 ## Set initial guesses ##
 mu_dist0_estvec[0] = np.array([10,10])
 sigma_dist0_estvec[0] = np.array([[10, 0], [0, 20]])
-mu_dist1_estvec[0] = np.array([10,10])
-sigma_dist1_estvec[0] = np.array([[10, 0], [0, 30]])
+mu_dist1_estvec[0] = np.array([80,80])
+sigma_dist1_estvec[0] = np.array([[15, 0], [0, 30]])
 tau_estvec[0] = 0.50
 
 loglik[0] = np.inf
@@ -97,27 +97,38 @@ for i in range(1,MAXITER+1):
             T[k,1]*np.outer(diffpart1[k], diffpart1[k].T)
     sigma_dist1_estvec[i] = sigma_dist1_estvec[i]/np.sum(T[:,1])
 
-## trim storage vectors ##
-numiters = MAXITER  # accounts for index 0
+
+tau_est = tau_estvec[MAXITER]
+mu_dist0_est = mu_dist0_estvec[MAXITER,:]
+mu_dist1_est = mu_dist1_estvec[MAXITER,:]
+sigma_dist0_est = sigma_dist0_estvec[MAXITER,:,:]
+sigma_dist1_est = sigma_dist1_estvec[MAXITER,:,:]
 
 ### Display results ###
-tau_est = tau_estvec[numiters]
-mu_dist0_est = mu_dist0_estvec[numiters,:]
-mu_dist1_est = mu_dist1_estvec[numiters,:]
-sigma_dist0_est = sigma_dist0_estvec[numiters,:,:]
-sigma_dist1_est = sigma_dist1_estvec[numiters,:,:]
 
-plt.scatter(x_vec[:,0], x_vec[:,1])
+# plot at various iterations
+for iter in [0, 1, 5, MAXITER]:
+    # plot simulated data
+    plt.scatter(x_vec[:,0], x_vec[:,1])
 
-x = np.arange(0, 100, 0.025)
-y = np.arange(0, 100, 0.025)
-X, Y = np.meshgrid(x, y)
-Z0 = mlab.bivariate_normal(X, Y, sigma_dist0_est[0,0], sigma_dist0_est[1,1], mu_dist0_est[0], mu_dist0_est[1], sigma_dist0_est[1,0])
-Z1 = mlab.bivariate_normal(X, Y, sigma_dist1_est[0,0], sigma_dist1_est[1,1], mu_dist1_est[0], mu_dist1_est[1], sigma_dist1_est[1,0])
+    # plot contours of estimated Gaussians
+    x = np.arange(0, 100, 0.025)
+    y = np.arange(0, 100, 0.025)
+    X, Y = np.meshgrid(x, y)
+    Z0 = mlab.bivariate_normal(X, Y, 
+        sigma_dist0_estvec[iter, 0,0], sigma_dist0_estvec[iter, 1,1], 
+        mu_dist0_estvec[iter, 0], mu_dist0_estvec[iter, 1], 
+        sigma_dist0_estvec[iter, 1,0])
+    Z1 = mlab.bivariate_normal(X, Y, 
+        sigma_dist1_estvec[iter, 0,0], sigma_dist1_estvec[iter, 1,1], 
+        mu_dist1_estvec[iter, 0], mu_dist1_estvec[iter, 1], 
+        sigma_dist1_estvec[iter, 1,0])
 
-plt.contour(X,Y,Z0)
-plt.contour(X,Y,Z1)
+    plt.contour(X,Y,Z0)
+    plt.contour(X,Y,Z1)
 
-plt.title('Expectation-Maximization Algorithm Estimation of Two Gaussians')
+    titlestr = 'Expectation-Maximization Algorithm Estimation of Two Gaussians \n' + \
+        r'Iteration %i, $\^\tau_1 = %f$' % (iter, tau_estvec[iter])
+    plt.title(titlestr)
 
-plt.show()
+    plt.show()
