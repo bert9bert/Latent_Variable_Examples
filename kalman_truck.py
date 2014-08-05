@@ -18,7 +18,7 @@ variance_accel = 0.05
 variance_meas  = 500
 
 F = np.array([[1, delta_t], [0, 1]])
-G = np.array([delta_t^2, delta_t])
+G = np.array([delta_t**2, delta_t])
 Q = np.outer(G, G.T)*variance_accel
 
 H = np.array([1, 0])
