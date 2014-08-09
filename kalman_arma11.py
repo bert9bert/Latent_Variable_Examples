@@ -7,7 +7,7 @@ import numpy as np
 from scipy import optimize
 
 ### Define program parameters ###
-MAX_MLE_ITER = 100
+MAX_MLE_ITER = 250
 
 
 ### Generate data ###
@@ -38,15 +38,17 @@ y_vec = y_vec[-T:]
 
 ### Estimate parameters ###
 ## Initial parameter guesses ##
-mu_guess     = 1
-phi_guess    = 0.2
-theta_guess  = 0.3
-sigma2_guess = 3
+mu_guess     = 9
+phi_guess    = phi
+theta_guess  = 0.5
+sigma2_guess = sigma2
 
 mu_estvec     = [mu_guess]
 phi_estvec    = [phi_guess]
 theta_estvec  = [theta_guess]
 sigma2_estvec = [sigma2_guess]
+
+eval_loglik_vec = []  # vector to store the evaluated log likelihood
 
 
 ## Define log likelihood function
@@ -61,27 +63,16 @@ def loglik(y_vec, state_est_vec, state_esterror_covmat_vec, mu, phi, theta, sigm
 
     n = 1
 
-    # compute observation level likelihoods
-    lik_t = []
-    for t in range(len(y_vec)):
-        state_est_last = state_est_vec[t]
-        state_esterror_covmat_last = state_esterror_covmat_vec[t]
+    # compute vector of measurement residuals with these parameters
+    ytilde_vec = [y_vec[t] - A.T.dot(x_this) - H.T.dot(state_est_vec[t]) for t in range(T)]
 
-        innovation_residual = y_vec[t] - A.T.dot(x_this) - H.T.dot(state_est_last)
-        innovation_covmat = H.T.dot(state_esterror_covmat_last).dot(H) + R
-
-        lik_new = \
-            (2*np.pi)**(-n/2) * np.linalg.det(H.T.dot(state_esterror_covmat_last).dot(H) + R)**(-1/2) * \
-            np.exp((-1/2) * innovation_residual.T.dot(np.linalg.inv(innovation_covmat)).dot(innovation_residual))
-        lik_t.append(lik_new[0][0])
-
-        ### BEGIN DEBUG
-        if lik_new<=0:
-            print(innovation_residual[0][0], np.linalg.inv(innovation_covmat)[0][0])
-        ### END DEBUG
+    # compute vector of measurement residual covariances with these parameters
+    S_vec = [H.T.dot(state_esterror_covmat_vec[t]).dot(H) + R for t in range(T)]
 
     # compute and return log likelihood
-    return sum([np.log(lik_t[t]) for t in range(len(y_vec))])
+    LL = -n*T/2*np.log(2*np.pi) - (1/2) * \
+        sum([  np.log(np.linalg.det(S_vec[t])) + ytilde_vec[t].T.dot(np.linalg.inv(S_vec[t])).dot(ytilde_vec[t])[0][0] for t in range(T) ])
+    return LL
 
 ## Define useful functions for Kalamn filter
 def make_F(phi):
@@ -114,39 +105,55 @@ for i in range(MAX_MLE_ITER):
     state_est_vec = [state_est_0]
     state_esterror_covmat_vec = [state_esterror_covmat_0]
 
+    measresid_vec = []
+    measresid_covmat_vec = []
+    kalmangain_vec = []
+
+
     ## perform Kalman filter ##
-    for j in range(1,T):
-        state_est_last = state_est_vec[-1]
-        state_esterror_covmat_last = state_esterror_covmat_vec[-1]
+    for j in range(T):
+        # get the values we need from the last iteration
+        xi_thispredict = state_est_vec[-1]  # the state estimate at time t given data up to time t-1
+        P_thispredict = state_esterror_covmat_vec[-1]  # the state estimate covariance at time t given data up to time t-1
 
-        innovation_residual = y_vec[j] - A.T.dot(x_this) - H.T.dot(state_est_last)
-        innovation_covmat = H.T.dot(state_esterror_covmat_last).dot(H) + R
+        # get next predicted state given the last predicted state
+        ytilde_this = y_vec[j] - A.T.dot(x_this) - H.T.dot(xi_thispredict)  # measurement residual
+        S_this = H.T.dot(P_thispredict).dot(H) + R  # measurement residual covariance
 
-        state_est_this = \
-            F.dot(state_est_last) + \
-            F.dot(state_esterror_covmat_last).dot(H).dot(np.linalg.inv(innovation_covmat)).dot(innovation_residual)
+        K_this = P_thispredict.dot(H).dot(np.linalg.inv(S_this))  # optimal Kalman gain
 
-        state_esterror_covmat_this = \
-            F.dot(state_esterror_covmat_last - state_esterror_covmat_last.dot(H).dot(np.linalg.inv(innovation_covmat)).dot(H.T).dot(state_esterror_covmat_last)).dot(F.T) + Q
+        xi_thisupdate = xi_thispredict + K_this.dot(ytilde_this)  # the state estimate at time t given data up to time t
+        P_thisupdate = P_thispredict - K_this.dot(H.T).dot(P_thispredict)  # the state estimate covariance at time t given data up to time t
 
-        state_est_vec.append(state_est_this)
-        state_esterror_covmat_vec.append(state_esterror_covmat_this)
+        xi_nextpredict = F.dot(xi_thisupdate)
+        P_nextpredict = F.dot(P_thisupdate).dot(F.T) + Q
 
-        state_est_last = state_est_this
-        state_esterror_covmat_last = state_esterror_covmat_this
+        # store the updated estimate and intermediate computations
+        state_est_vec.append(xi_nextpredict)
+        state_esterror_covmat_vec.append(P_nextpredict)
+
+        measresid_vec.append(ytilde_this)
+        measresid_covmat_vec.append(S_this)
+        kalmangain_vec.append(K_this)
+
+
 
     ## find this iteration's MLE estimates of the parameters ##
-    # ...
     loss = lambda x: -loglik(y_vec, state_est_vec, state_esterror_covmat_vec, x[0], x[1], x[2], x[3])
     x0 = (mu_estvec[-1], phi_estvec[-1], theta_estvec[-1], sigma2_estvec[-1])
     bnds = ((None,None), (None,None), (None,None), (0,None))
     res = optimize.minimize(loss, x0, method='SLSQP', bounds=bnds)  # TODO: put in other args
+
+    assert res.success
 
     mu_estvec.append(res.x[0])
     phi_estvec.append(res.x[1])
     theta_estvec.append(res.x[2])
     sigma2_estvec.append(res.x[3])
 
+    eval_loglik_vec.append(-res.fun)
+
 ## Display results
 print('(mu, phi, theta, sigma2) = (%f, %f, %f, %f)' % (mu, phi, theta, sigma2))
+print('(mu, phi, theta, sigma2)_0 = (%f, %f, %f, %f)' % (mu_guess, phi_guess, theta_guess, sigma2_guess))
 print('(mu, phi, theta, sigma2)^hat = (%f, %f, %f, %f)' % (mu_estvec[-1], phi_estvec[-1], theta_estvec[-1], sigma2_estvec[-1]))
